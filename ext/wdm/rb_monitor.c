@@ -8,6 +8,12 @@
 #include "rb_change.h"
 #include "rb_monitor.h"
 
+#include <ruby/thread.h>
+
+#ifndef RBOOL
+#define RBOOL(v) (v ? Qtrue : Qfalse)
+#endif
+
 // ----------------------------------------------------------
 // Global variables
 // ----------------------------------------------------------
@@ -50,7 +56,7 @@ static void CALLBACK handle_entry_change(DWORD, DWORD, LPOVERLAPPED);
 static BOOL register_monitoring_entry(WDM_PEntry);
 static DWORD WINAPI start_monitoring(LPVOID);
 
-static VALUE wait_for_changes(LPVOID);
+static void*  wait_for_changes(LPVOID);
 static void process_changes(WDM_PQueue);
 static void stop_monitoring(LPVOID);
 static VALUE rb_monitor_run_bang(VALUE);
@@ -367,14 +373,14 @@ start_monitoring(LPVOID param)
     return 0;
 }
 
-static VALUE
+static void*
 wait_for_changes(LPVOID param)
 {
     HANDLE process_event;
 
     process_event = (HANDLE)param;
 
-    return WaitForSingleObject(process_event, INFINITE) == WAIT_OBJECT_0 ? Qtrue : Qfalse;
+    return (void*)(WaitForSingleObject(process_event, INFINITE) == WAIT_OBJECT_0 ? Qtrue : Qfalse);
 }
 
 static void
@@ -462,7 +468,7 @@ static VALUE
 rb_monitor_run_bang(VALUE self)
 {
     BOOL already_running,
-         waiting_succeeded;
+        waiting_succeeded;
     WDM_PMonitor monitor;
 
     WDM_DEBUG("Running the monitor!");
@@ -506,7 +512,7 @@ rb_monitor_run_bang(VALUE self)
         // Ruby 2.2 removed the 'rb_thread_blocking_region' function. Hence, we now need
         // to check if the replacement function is defined and use it if it's available.
         #ifdef HAVE_RB_THREAD_CALL_WITHOUT_GVL
-        waiting_succeeded = rb_thread_call_without_gvl(wait_for_changes, monitor->process_event, stop_monitoring, monitor);
+        waiting_succeeded = RBOOL(rb_thread_call_without_gvl(wait_for_changes, monitor->process_event, stop_monitoring, monitor));
         #else
         waiting_succeeded = rb_thread_blocking_region(wait_for_changes, monitor->process_event, stop_monitoring, monitor);
         #endif
